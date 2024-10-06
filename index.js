@@ -8,7 +8,10 @@ const port = process.env.PORT || 5000;
 app.use(express.json());
 
 app.use(cors({
-  origin: "https://travels-management.web.app"
+  origin: [
+    'https://travels-management.web.app',
+    'http://localhost:5173'
+  ]
 }));
 
 
