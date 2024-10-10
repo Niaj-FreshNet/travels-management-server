@@ -1,8 +1,9 @@
 const express = require('express');
 const app = express();
 const cors = require('cors');
-require('dotenv').config();
+const jwt = require('jsonwebtoken');
 const { MongoClient, ObjectId, ServerApiVersion } = require('mongodb');
+require('dotenv').config();
 const port = process.env.PORT || 5000;
 
 app.use(express.json());
@@ -35,10 +36,207 @@ async function run() {
     const supplierCollection = client.db('travelsDB').collection('suppliers');
     const saleCollection = client.db('travelsDB').collection('sales');
     const paymentCollection = client.db('travelsDB').collection('payments');
+    const userCollection = client.db('travelsDB').collection('users');
 
 
 
-    // ................................Supplier Related API....................................
+    // jwt related api
+    app.post('/jwt', async (req, res) => {
+      const user = req.body;
+      const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {
+        expiresIn: '24h'
+      });
+      res.send({ token });
+      console.log(token);
+    })
+
+    // middlewares
+    const verifyToken = (req, res, next) => {
+      console.log('inside verify token', req.headers.authorization);
+      if (!req.headers.authorization) {
+        return res.status(401).send({ message: 'unauthorized access' });
+      }
+      const token = req.headers.authorization.split(' ')[1];
+      jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+        if (err) {
+          return res.status(401).send({ message: 'unauthorized access' })
+        }
+        req.decoded = decoded;
+        next();
+      })
+    }
+
+    // use verify admin after verifyToken
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded.email;
+      const query = { email: email };
+      const user = await userCollection.findOne(query);
+      const isAdmin = user?.role === 'admin';
+      if (!isAdmin) {
+        return res.status(403).send({ message: 'forbidden access' });
+      }
+      next();
+    }
+
+
+
+    // // ................................User Related API....................................
+    // app.get('/users', verifyToken, async (req, res) => {
+    //   const result = await userCollection.find().toArray();
+    //   res.send(result);
+    // });
+
+    app.get('/user/admin/:email', verifyToken, async (req, res) => {
+      const email = req.params.email;
+      if (email !== req.decoded.email) {
+        return res.status(403).send({ message: 'forbidden access' })
+      }
+      const query = { email: email };
+      const user = await userCollection.findOne(query);
+      let admin = false;
+      if (user) {
+        admin = user?.role === 'admin';
+      }
+      res.send({ admin });
+    });
+
+    // app.post('/users', async (req, res) => {
+    //   const user = req.body;
+    //   // insert email if user doesn't exists
+    //   // you can do this many ways (1. email unique, 2. upsert, 3. simple checking)
+    //   const query = { email: user.email }
+    //   const existingUser = await userCollection.findOne(query);
+    //   if (existingUser) {
+    //     return res.send({ message: 'user already exists', insertedTd: null })
+    //   }
+    //   const result = await userCollection.insertOne(user);
+    //   res.send(result);
+    // });
+
+    // app.patch('/users/admin/:id', verifyToken, verifyAdmin, async (req, res) => {
+    //   const id = req.params.id;
+    //   const filter = { _id: new ObjectId(id) };
+    //   const updatedDoc = {
+    //     $set: {
+    //       role: 'admin'
+    //     }
+    //   }
+    //   const result = await userCollection.updateOne(filter, updatedDoc);
+    //   res.send(result);
+    // });
+
+    // app.delete('/users/:id', verifyToken, verifyAdmin, async (req, res) => {
+    //   const id = req.params.id;
+    //   const query = { _id: new ObjectId(id) }
+    //   const result = await userCollection.deleteOne(query);
+    //   res.send(result);
+    // });
+
+
+
+    // ................................User Related API....................................
+    // Fetch all users
+    app.get('/users', async (req, res) => {
+      try {
+        const cursor = userCollection.find();
+        const result = await cursor.toArray();
+        res.send(result);
+      } catch (error) {
+        console.error('Error fetching users:', error);
+        res.status(500).send({ error: 'Failed to fetch users' });
+      }
+    });
+
+    // Fetch a single user by ID
+    app.get('/user/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const result = await userCollection.findOne({ _id: new ObjectId(id) });
+        if (!result) {
+          res.status(404).send({ error: 'User not found' });
+        } else {
+          res.send(result);
+        }
+      } catch (error) {
+        console.error('Error fetching user:', error);
+        res.status(500).send({ error: 'Failed to fetch user' });
+      }
+    });
+
+    // Add a new user
+    app.post('/user', async (req, res) => {
+      try {
+        const newUser = req.body;
+        console.log('New user:', newUser);
+        const result = await userCollection.insertOne(newUser);
+        console.log('Insert result:', result);
+        res.send(result);
+      } catch (error) {
+        console.error('Error adding user:', error);
+        res.status(500).send({ error: 'Failed to add user' });
+      }
+    });
+
+    // Update an user's status
+    app.put('/user/:id/status', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const { status } = req.body;
+        const result = await userCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { status } }
+        );
+        if (result.modifiedCount === 0) {
+          res.status(404).send({ error: 'User not found or status unchanged' });
+        } else {
+          res.send(result);
+        }
+      } catch (error) {
+        console.error('Error updating user status:', error);
+        res.status(500).send({ error: 'Failed to update user status' });
+      }
+    });
+
+    // Edit an user
+    app.put('/user/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const updatedUser = req.body;
+        const result = await userCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updatedUser }
+        );
+        if (result.modifiedCount === 0) {
+          res.status(404).send({ error: 'User not found or data unchanged' });
+        } else {
+          res.send(result);
+        }
+      } catch (error) {
+        console.error('Error updating user:', error);
+        res.status(500).send({ error: 'Failed to update user' });
+      }
+    });
+
+    // Delete an user
+    app.delete('/user/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const result = await userCollection.deleteOne({ _id: new ObjectId(id) });
+        if (result.deletedCount === 0) {
+          res.status(404).send({ error: 'User not found' });
+        } else {
+          res.send(result);
+        }
+      } catch (error) {
+        console.error('Error deleting user:', error);
+        res.status(500).send({ error: 'Failed to delete user' });
+      }
+    });
+
+
+
+
+    // ................................Airline Related API....................................
     // Fetch all airlines
     app.get('/airlines', async (req, res) => {
       try {
@@ -237,6 +435,30 @@ async function run() {
         res.status(500).send({ error: 'Failed to delete supplier' });
       }
     });
+
+
+    // Update supplier total due
+    app.patch('/supplier/:supplierName', async (req, res) => {
+      const { supplierName } = req.params;
+      const { totalDue } = req.body;
+
+      try {
+        const updatedSupplier = await supplierCollection.findOneAndUpdate(
+          { supplierName },
+          { $set: { totalDue } },
+          { new: true }
+        );
+
+        if (!updatedSupplier) {
+          return res.status(404).json({ message: 'Supplier not found' });
+        }
+
+        res.json(updatedSupplier);
+      } catch (error) {
+        res.status(500).json({ message: 'Server error', error });
+      }
+    });
+
 
 
 
@@ -479,6 +701,9 @@ async function run() {
         res.status(500).send({ error: 'Failed to delete payment' });
       }
     });
+
+
+
 
 
     // Send a ping to confirm a successful connection
