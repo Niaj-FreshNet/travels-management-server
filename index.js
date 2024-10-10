@@ -11,6 +11,7 @@ app.use(express.json());
 app.use(cors({
   origin: [
     'https://travels-management.web.app',
+    'https://quickway2services.com',
     'http://localhost:5173'
   ]
 }));
