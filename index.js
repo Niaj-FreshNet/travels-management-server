@@ -545,19 +545,17 @@ async function run() {
       }
     });
 
-    // Update a sale's postStatus
-    app.put('/sale/:documentNumber/postStatus', async (req, res) => {
+    // Update an sale's post status
+    app.put('/sale/:id/postStatus', async (req, res) => {
       try {
-        const documentNumber = req.params.documentNumber; // The documentNumber within the sales array
+        const id = req.params.id;
         const { postStatus } = req.body;
-
         const result = await saleCollection.updateOne(
-          { 'sales.documentNumber': documentNumber },
-          { $set: { 'sales.$.postStatus': postStatus } }
+          { _id: new ObjectId(id) },
+          { $set: { postStatus } }
         );
-
         if (result.modifiedCount === 0) {
-          res.status(404).send({ error: 'Sale not found or postStatus unchanged' });
+          res.status(404).send({ error: 'Supplier not found or postStatus unchanged' });
         } else {
           res.send(result);
         }
