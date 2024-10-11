@@ -545,17 +545,19 @@ async function run() {
       }
     });
 
-    // Update an sale's post status
-    app.put('/sale/:id/postStatus', async (req, res) => {
+    // Update a sale's postStatus
+    app.put('/sale/:documentNumber/postStatus', async (req, res) => {
       try {
-        const id = req.params.id;
+        const documentNumber = req.params.documentNumber; // The documentNumber within the sales array
         const { postStatus } = req.body;
+
         const result = await saleCollection.updateOne(
-          { _id: new ObjectId(id) },
-          { $set: { postStatus } }
+          { 'sales.documentNumber': documentNumber },
+          { $set: { 'sales.$.postStatus': postStatus } }
         );
+
         if (result.modifiedCount === 0) {
-          res.status(404).send({ error: 'Supplier not found or postStatus unchanged' });
+          res.status(404).send({ error: 'Sale not found or postStatus unchanged' });
         } else {
           res.send(result);
         }
@@ -565,18 +567,19 @@ async function run() {
       }
     });
 
-
-    // Update an sale's payment status
-    app.put('/sale/:id/paymentStatus', async (req, res) => {
+    // Update a sale's paymentStatus
+    app.put('/sale/:documentNumber/paymentStatus', async (req, res) => {
       try {
-        const id = req.params.id;
+        const documentNumber = req.params.documentNumber; // The documentNumber within the sales array
         const { paymentStatus } = req.body;
+
         const result = await saleCollection.updateOne(
-          { _id: new ObjectId(id) },
-          { $set: { paymentStatus } }
+          { 'sales.documentNumber': documentNumber },
+          { $set: { 'sales.$.paymentStatus': paymentStatus } }
         );
+
         if (result.modifiedCount === 0) {
-          res.status(404).send({ error: 'Supplier not found or paymentStatus unchanged' });
+          res.status(404).send({ error: 'Sale not found or paymentStatus unchanged' });
         } else {
           res.send(result);
         }
