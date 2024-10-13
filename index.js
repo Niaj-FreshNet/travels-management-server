@@ -179,7 +179,7 @@ async function run() {
     });
 
     // Update an user's status
-    app.put('/user/:id/status', async (req, res) => {
+    app.patch('/user/:id/status', async (req, res) => {
       try {
         const id = req.params.id;
         const { status } = req.body;
@@ -198,20 +198,31 @@ async function run() {
       }
     });
 
-    // Edit an user
+    // Edit a user
     app.put('/user/:id', async (req, res) => {
       try {
         const id = req.params.id;
         const updatedUser = req.body;
+
+        if (!updatedUser || Object.keys(updatedUser).length === 0) {
+          return res.status(400).send({ error: 'No update data provided' });
+        }
+
         const result = await userCollection.updateOne(
           { _id: new ObjectId(id) },
           { $set: updatedUser }
         );
-        if (result.modifiedCount === 0) {
-          res.status(404).send({ error: 'User not found or data unchanged' });
-        } else {
-          res.send(result);
+
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ error: 'User not found' });
         }
+
+        if (result.modifiedCount === 0) {
+          return res.status(304).send({ message: 'No changes made to the user' });
+        }
+
+        const updatedUserData = await userCollection.findOne({ _id: new ObjectId(id) });
+        res.send(updatedUserData);
       } catch (error) {
         console.error('Error updating user:', error);
         res.status(500).send({ error: 'Failed to update user' });
@@ -657,65 +668,56 @@ async function run() {
     app.patch('/sale/:id', async (req, res) => {
       try {
         const id = req.params.id;
-        const newSaleData = req.body; // This should be an array of sale objects
+        const {
 
-        if (!Array.isArray(newSaleData) || newSaleData.length === 0) {
-          return res.status(400).json({ message: 'Invalid sale data' });
-        }
+          documentNumber,
+          airlineCode,
+          supplierName,
+          sellPrice,
+          buyingPrice,
+          mode,
+          remarks,
+          passengerName,
+          sector,
+          date,
 
-        const updatePromises = newSaleData.map(async (sale) => {
-          const {
-            airlineCode,
-            supplierName,
-            sellPrice,
-            buyingPrice,
-            mode,
-            remarks,
-            passengerName,
-            sector,
-            date,
-            documentNumber, // Ensure documentNumber is included in each sale object
-          } = sale;
+        } = req.body;
 
-          // Update each sale entry based on documentNumber
-          return saleCollection.updateOne(
-            { _id: new ObjectId(id), 'sales.documentNumber': documentNumber },
-            {
-              $set: {
-                'sales.$.airlineCode': airlineCode,
-                'sales.$.supplierName': supplierName,
-                'sales.$.sellPrice': sellPrice,
-                'sales.$.buyingPrice': buyingPrice,
-                'sales.$.mode': mode,
-                'sales.$.remarks': remarks,
-                'sales.$.passengerName': passengerName,
-                'sales.$.sector': sector,
-                'sales.$.date': date,
-              },
-            }
-          );
-        });
+        console.log(req.body);
 
-        // Execute all update promises
-        const results = await Promise.all(updatePromises);
+        const result = await saleCollection.updateOne(
+          { _id: new ObjectId(id), 'sales.documentNumber': documentNumber }, // Match document where sales contain this documentNumber
+          {
+            $set: {
 
-        // Check if any sales were updated
-        const modifiedCount = results.reduce((total, result) => total + result.modifiedCount, 0);
-        const upsertedCount = results.reduce((total, result) => total + result.upsertedCount, 0);
+              'sales.$.airlineCode': airlineCode,
+              'sales.$.supplierName': supplierName,
+              'sales.$.sellPrice': sellPrice,
+              'sales.$.buyingPrice': buyingPrice,
+              'sales.$.mode': mode,
+              'sales.$.remarks': remarks,
+              'sales.$.passengerName': passengerName,
+              'sales.$.sector': sector,
+              'sales.$.date': date,
 
-        if (modifiedCount > 0) {
-          res.status(200).json({ message: 'Sales updated successfully' });
-        } else if (upsertedCount > 0) {
-          res.status(201).json({ message: 'Sales created successfully' });
+            },
+          },
+          { upsert: true } // This allows for inserting a new document if none is found
+        );
+        console.log(result);
+
+        if (result.modifiedCount > 0) {
+          res.status(200).json({ message: 'Sale updated successfully' });
+        } else if (result.upsertedCount > 0) {
+          res.status(201).json({ message: 'Sale created successfully' });
         } else {
-          res.status(404).json({ message: 'No matching sales found to update' });
+          res.status(404).json({ message: 'No matching sale found to update' });
         }
       } catch (error) {
-        console.error('Error updating sales:', error);
-        res.status(500).json({ message: 'Error updating sales' });
+        console.error('Error updating sale:', error);
+        res.status(500).json({ message: 'Error updating sale' });
       }
     });
-
 
 
     // notRefund a sale
