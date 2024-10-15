@@ -504,40 +504,35 @@ async function run() {
     });
 
 
-    // ......................
-    // Fetch payment status by supplierName from the sales collection
-    app.get('/sale', async (req, res) => {
-      try {
-        const { supplierName } = req.query; // Get supplierName from the query parameters
+// ......................
+// Fetch payment status by supplierName from the sales collection
+app.get('/sale', async (req, res) => {
+  try {
+    const { supplierName } = req.query; // Get supplierName from the query parameters
 
-        // Ensure supplierName is provided
-        if (!supplierName) {
-          return res.status(400).send({ error: 'Supplier name is required' });
-        }
+    // Ensure supplierName is provided
+    if (!supplierName) {
+      return res.status(400).send({ error: 'Supplier name is required' });
+    }
 
-        // Find all sales that contain the supplierName in the sales array
-        const result = await saleCollection.find({
-          'sales.supplierName': supplierName,
-          paymentStatus: { $in: ['Paid', 'Due'] }
-        }).toArray();
+    // Find all sales that match the supplierName and have paymentStatus 'Paid' or 'Due'
+    const result = await saleCollection.find({
+      supplierName: supplierName,
+      paymentStatus: { $in: ['Paid', 'Due'] }
+    }).toArray();
 
-        // Flatten the sales arrays and filter by supplierName
-        const filteredSales = result.flatMap(sale =>
-          sale.sales.filter(item => item.supplierName === supplierName)
-        );
+    // Check if any results are found
+    if (result.length === 0) {
+      return res.status(404).send({ error: 'No results found for the supplier' });
+    }
 
-        // Check if any results are found
-        if (filteredSales.length === 0) {
-          return res.status(404).send({ error: 'No results found for the vendor' });
-        }
-
-        // Send the filtered sales back
-        res.send(filteredSales);
-      } catch (error) {
-        console.error('Error fetching sale:', error);
-        res.status(500).send({ error: 'Failed to fetch sale' });
-      }
-    });
+    // Send the sales back
+    res.send(result);
+  } catch (error) {
+    console.error('Error fetching sale:', error);
+    res.status(500).send({ error: 'Failed to fetch sale' });
+  }
+});
 
     // .....................
 
@@ -556,24 +551,30 @@ async function run() {
       }
     });
 
-    // Update a sale's post status within a document by documentNumber
+    // Update a sale's post status by sale ID
     app.patch('/sale/:id/postStatus', async (req, res) => {
       try {
         const id = req.params.id;
-        const { documentNumber, postStatus } = req.body;
-        // console.log(documentNumber, postStatus);
+        const { postStatus } = req.body; // Removed documentNumber since it's not needed
 
-        const result = await saleCollection.updateOne(
-          { _id: new ObjectId(id), 'sales.documentNumber': documentNumber },
-          { $set: { 'sales.$.postStatus': postStatus } }
-        );
-        // console.log(result);
-
-        if (result.modifiedCount === 0) {
-          res.status(404).send({ error: 'Sale not found or postStatus unchanged' });
-        } else {
-          res.send(result);
+        // Ensure the id is a valid ObjectId
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).send({ error: 'Invalid sale ID' });
         }
+
+        // Update the postStatus of the sale document directly
+        const result = await saleCollection.updateOne(
+          { _id: new ObjectId(id) }, // Find the sale by its unique ID
+          { $set: { postStatus } } // Set the new postStatus
+        );
+
+        // Check if any document was modified
+        if (result.modifiedCount === 0) {
+          return res.status(404).send({ error: 'Sale not found or postStatus unchanged' });
+        }
+
+        // Successfully updated the post status
+        res.send({ message: 'Post status updated successfully', result });
       } catch (error) {
         console.error('Error updating sale postStatus:', error);
         res.status(500).send({ error: 'Failed to update sale postStatus' });
@@ -584,77 +585,86 @@ async function run() {
     app.patch('/sale/:id/refundStatus', async (req, res) => {
       try {
         const id = req.params.id;
-        const { documentNumber, postStatus } = req.body;
-        // console.log(documentNumber, postStatus);
+        const { postStatus } = req.body;
 
         const result = await saleCollection.updateOne(
-          { _id: new ObjectId(id), 'sales.documentNumber': documentNumber },
-          { $set: { 'sales.$.postStatus': postStatus } }
+          { _id: new ObjectId(id) },
+          {
+            $set: { postStatus }
+          }
         );
-        // console.log(result);
 
-        if (result.modifiedCount === 0) {
-          res.status(404).send({ error: 'Sale not found or postStatus unchanged' });
+        if (result.modifiedCount > 0) {
+          res.status(200).json({ message: 'Post status updated successfully' });
         } else {
-          res.send(result);
+          res.status(404).json({ message: 'No matching sale found to update' });
         }
       } catch (error) {
-        console.error('Error updating sale postStatus:', error);
-        res.status(500).send({ error: 'Failed to update sale postStatus' });
+        console.error('Error updating post status:', error);
+        res.status(500).json({ message: 'Error updating post status' });
       }
     });
 
-    // Update a sale's payment status within a document by documentNumber
+
+    // Update a sale's payment status by sale ID
     app.patch('/sale/:id/paymentStatus', async (req, res) => {
       try {
         const id = req.params.id;
-        const { documentNumber, paymentStatus } = req.body;
-        console.log(documentNumber, paymentStatus);
+        const { paymentStatus } = req.body; // Removed documentNumber since it's not needed
 
-        const result = await saleCollection.updateOne(
-          { _id: new ObjectId(id), 'sales.documentNumber': documentNumber },
-          { $set: { 'sales.$.paymentStatus': paymentStatus } }
-        );
-        console.log(result);
-
-        if (result.modifiedCount === 0) {
-          res.status(404).send({ error: 'Sale not found or paymentStatus unchanged' });
-        } else {
-          res.send(result);
+        // Ensure the id is a valid ObjectId
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).send({ error: 'Invalid sale ID' });
         }
+
+        // Update the paymentStatus of the sale document directly
+        const result = await saleCollection.updateOne(
+          { _id: new ObjectId(id) }, // Find the sale by its unique ID
+          { $set: { paymentStatus } } // Set the new paymentStatus
+        );
+
+        // Check if any document was modified
+        if (result.modifiedCount === 0) {
+          return res.status(404).send({ error: 'Sale not found or paymentStatus unchanged' });
+        }
+
+        // Successfully updated the payment status
+        res.send({ message: 'Payment status updated successfully', result });
       } catch (error) {
         console.error('Error updating sale paymentStatus:', error);
         res.status(500).send({ error: 'Failed to update sale paymentStatus' });
       }
     });
 
-
     // isRefund a sale
     app.patch('/sale/:id/isRefund', async (req, res) => {
       try {
         const id = req.params.id;
-        const { documentNumber, refundCharge, serviceCharge, refundFromAirline, refundAmount, isRefunded } = req.body;
-        // console.log(documentNumber, refundCharge, serviceCharge, refundFromAirline, refundAmount);
+        const {
+          refundCharge,
+          serviceCharge,
+          refundFromAirline,
+          refundAmount,
+          isRefunded,
+          refundDate
+        } = req.body;
 
         const result = await saleCollection.updateOne(
-          { _id: new ObjectId(id), 'sales.documentNumber': documentNumber }, // Match document where sales contain this documentNumber
+          { _id: new ObjectId(id) },
           {
             $set: {
-              'sales.$.refundCharge': refundCharge,
-              'sales.$.serviceCharge': serviceCharge,
-              'sales.$.refundFromAirline': refundFromAirline,
-              'sales.$.refundAmount': refundAmount,
-              'sales.$.isRefunded': isRefunded,
+              refundDate,
+              refundCharge,
+              serviceCharge,
+              refundFromAirline,
+              refundAmount,
+              isRefunded,
             },
-          },
-          { upsert: true } // This allows for inserting a new document if none is found
+          }
         );
-        console.log(result);
 
         if (result.modifiedCount > 0) {
           res.status(200).json({ message: 'Sale updated successfully' });
-        } else if (result.upsertedCount > 0) {
-          res.status(201).json({ message: 'Sale created successfully' });
         } else {
           res.status(404).json({ message: 'No matching sale found to update' });
         }
@@ -664,12 +674,11 @@ async function run() {
       }
     });
 
-    // Edit a sale
-    app.patch('/sale/:id', async (req, res) => {
-      try {
-        const id = req.params.id;
-        const {
-
+// Edit a sale
+app.patch('/sale/:id', async (req, res) => {
+  try {
+      const id = req.params.id;
+      const {
           documentNumber,
           airlineCode,
           supplierName,
@@ -680,58 +689,55 @@ async function run() {
           passengerName,
           sector,
           date,
+      } = req.body;
 
-        } = req.body;
+      console.log(req.body);
 
-        console.log(req.body);
-
-        const result = await saleCollection.updateOne(
-          { _id: new ObjectId(id), 'sales.documentNumber': documentNumber }, // Match document where sales contain this documentNumber
+      const result = await saleCollection.updateOne(
+          { _id: new ObjectId(id) }, // Match document by its _id
           {
-            $set: {
-
-              'sales.$.airlineCode': airlineCode,
-              'sales.$.supplierName': supplierName,
-              'sales.$.sellPrice': sellPrice,
-              'sales.$.buyingPrice': buyingPrice,
-              'sales.$.mode': mode,
-              'sales.$.remarks': remarks,
-              'sales.$.passengerName': passengerName,
-              'sales.$.sector': sector,
-              'sales.$.date': date,
-
-            },
+              $set: {
+                  documentNumber,
+                  airlineCode,
+                  supplierName,
+                  sellPrice,
+                  buyingPrice,
+                  mode,
+                  remarks,
+                  passengerName,
+                  sector,
+                  date,
+              },
           },
           { upsert: true } // This allows for inserting a new document if none is found
-        );
-        console.log(result);
+      );
+      console.log(result);
 
-        if (result.modifiedCount > 0) {
+      if (result.modifiedCount > 0) {
           res.status(200).json({ message: 'Sale updated successfully' });
-        } else if (result.upsertedCount > 0) {
+      } else if (result.upsertedCount > 0) {
           res.status(201).json({ message: 'Sale created successfully' });
-        } else {
+      } else {
           res.status(404).json({ message: 'No matching sale found to update' });
-        }
-      } catch (error) {
-        console.error('Error updating sale:', error);
-        res.status(500).json({ message: 'Error updating sale' });
       }
-    });
+  } catch (error) {
+      console.error('Error updating sale:', error);
+      res.status(500).json({ message: 'Error updating sale' });
+  }
+});
+
 
 
     // notRefund a sale
     app.patch('/sale/:id/notRefund', async (req, res) => {
       try {
         const id = req.params.id;
-        const { documentNumber, notRefunded } = req.body;
-        // console.log(documentNumber, notRefunded);
+        const { isRefunded } = req.body;
 
         const result = await saleCollection.updateOne(
-          { _id: new ObjectId(id), 'sales.documentNumber': documentNumber },
-          { $set: { 'sales.$.isRefunded': notRefunded } }
+          { _id: new ObjectId(id) },
+          { $set: { isRefunded } }
         );
-        // console.log(result);
 
         if (result.modifiedCount === 0) {
           res.status(404).send({ error: 'Sale not found or isRefunded unchanged' });
