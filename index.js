@@ -41,40 +41,82 @@ async function run() {
 
 
 
-    // jwt related api
+    // JWT related API to handle login and token generation
     app.post('/jwt', async (req, res) => {
-      const user = req.body;
-      const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {
-        expiresIn: '24h'
-      });
-      res.send({ token });
-      console.log(token);
-    })
+      const { email } = req.body;  // Extract email from the request body
 
-    // middlewares
-    const verifyToken = (req, res, next) => {
-      console.log('inside verify token', req.headers.authorization);
-      if (!req.headers.authorization) {
-        return res.status(401).send({ message: 'unauthorized access' });
+      try {
+        // Fetch the user from the database using the email
+        const user = await userCollection.findOne({ email });
+
+        if (!user) {
+          return res.status(404).send({ message: 'User not found' });
+        }
+
+        // Check if the user's account is active
+        const status = user.status;
+        if (status !== 'active') {
+          return res.status(403).send({ message: 'Account is inactive' });
+        }
+
+        // Get the user's role from the database (sales/admin)
+        const role = user.role;
+
+        // Sign the JWT with both email, role, and status
+        const token = jwt.sign(
+          { email, role, status },  // Include email, role, and status in the JWT payload
+          process.env.ACCESS_TOKEN_SECRET,
+          { expiresIn: '24h' }  // Token expires in 24 hours
+        );
+
+        // Send the JWT token back to the client
+        res.send({ token });
+
+      } catch (error) {
+        console.error('Error generating JWT:', error);
+        res.status(500).send({ message: 'Internal server error' });
       }
-      const token = req.headers.authorization.split(' ')[1];
+    });
+
+    // Middleware to verify the JWT and ensure the user has an active account
+    const verifyToken = (req, res, next) => {
+      const authorization = req.headers.authorization;
+
+      if (!authorization) {
+        return res.status(401).send({ message: 'Unauthorized access' });
+      }
+
+      const token = authorization.split(' ')[1];
+
       jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
         if (err) {
-          return res.status(401).send({ message: 'unauthorized access' })
+          return res.status(401).send({ message: 'Unauthorized access' });
         }
+
+        // Attach the decoded token (which includes email, role, and status) to the request object
         req.decoded = decoded;
+
+        // Check if the user's account is active
+        if (req.decoded.status !== 'active') {
+          return res.status(403).send({ message: 'Account is inactive' });
+        }
+
         next();
-      })
-    }
+      });
+    };
 
     // use verify admin after verifyToken
     const verifyAdmin = async (req, res, next) => {
       const email = req.decoded.email;
+      console.log('Admin Check:', email)
       const query = { email: email };
+      console.log(query)
       const user = await userCollection.findOne(query);
+      console.log(user)
       const isAdmin = user?.role === 'admin';
+      console.log(isAdmin)
       if (!isAdmin) {
-        return res.status(403).send({ message: 'forbidden access' });
+        return res.status(403).send({ message: 'forbidden access: NOT ADMIN' });
       }
       next();
     }
@@ -87,16 +129,45 @@ async function run() {
     //   res.send(result);
     // });
 
-    app.get('/user/admin/:email', verifyToken, async (req, res) => {
+    app.get('/users/status/:email', verifyToken, async (req, res) => {
       const email = req.params.email;
+    
+      // Ensure the email matches the one in the decoded token for security
       if (email !== req.decoded.email) {
-        return res.status(403).send({ message: 'forbidden access' })
+        return res.status(403).send({ message: 'forbidden access: UNVERIFIED' });
+      }
+    
+      try {
+        // Find the user by email in the database
+        const user = await userCollection.findOne({ email });
+        if (!user) {
+          return res.status(404).send({ message: 'User not found' });
+        }
+    
+        // Return the user's status
+        const isActive = user.status === 'active';
+        res.send({ active: isActive });
+      } catch (error) {
+        console.error('Error fetching user status:', error);
+        res.status(500).send({ message: 'Internal server error' });
+      }
+    });
+    
+
+    app.get('/users/admin/:email', verifyToken, verifyAdmin, async (req, res) => {
+      const email = req.params.email;
+      console.log(email);
+      if (email !== req.decoded.email) {
+        return res.status(403).send({ message: 'forbidden access: UNVERIFIED' })
       }
       const query = { email: email };
+      console.log(query);
       const user = await userCollection.findOne(query);
+      console.log(user);
       let admin = false;
       if (user) {
         admin = user?.role === 'admin';
+        console.log(admin);
       }
       res.send({ admin });
     });
@@ -165,7 +236,7 @@ async function run() {
     });
 
     // Add a new user
-    app.post('/user', async (req, res) => {
+    app.post('/user', verifyToken, verifyAdmin, async (req, res) => {
       try {
         const newUser = req.body;
         console.log('New user:', newUser);
@@ -179,7 +250,7 @@ async function run() {
     });
 
     // Update an user's status
-    app.patch('/user/:id/status', async (req, res) => {
+    app.patch('/user/:id/status', verifyToken, verifyAdmin, async (req, res) => {
       try {
         const id = req.params.id;
         const { status } = req.body;
@@ -230,7 +301,7 @@ async function run() {
     });
 
     // Delete an user
-    app.delete('/user/:id', async (req, res) => {
+    app.delete('/user/:id', verifyToken, verifyAdmin, async (req, res) => {
       try {
         const id = req.params.id;
         const result = await userCollection.deleteOne({ _id: new ObjectId(id) });
@@ -475,17 +546,33 @@ async function run() {
 
 
     // ................................Sale Related API....................................
-    // Fetch all sale
-    app.get('/sales', async (req, res) => {
+    // Fetch sales (sales and admin role)
+    app.get('/sales', verifyToken, async (req, res) => {
       try {
-        const cursor = saleCollection.find();
-        const result = await cursor.toArray();
-        res.send(result);
+        const userEmail = req.decoded.email;  // Get user's email from the decoded JWT
+        console.log('decoded email:', userEmail)
+        const userRole = req.decoded.role;    // Get user's role from the decoded JWT
+        console.log('decoded role:', userRole)
+
+        let query = {};
+
+        // If the user is a sales user, filter the sales by the createdBy field (their email)
+        if (userRole === 'sales') {
+          query.createdBy = userEmail;
+          console.log('userEmail: ', userEmail)
+        }
+        // If the user is an admin, no need to filter, they can see all sales
+
+        const sales = await saleCollection.find(query).toArray();
+        console.log('sales query: ', sales)
+        res.send(sales);
+
       } catch (error) {
         console.error('Error fetching sales:', error);
         res.status(500).send({ error: 'Failed to fetch sales' });
       }
     });
+
 
     // Fetch a single sale by ID
     app.get('/sale/:id', async (req, res) => {
@@ -504,35 +591,35 @@ async function run() {
     });
 
 
-// ......................
-// Fetch payment status by supplierName from the sales collection
-app.get('/sale', async (req, res) => {
-  try {
-    const { supplierName } = req.query; // Get supplierName from the query parameters
+    // ......................
+    // Fetch payment status by supplierName from the sales collection
+    app.get('/sale', async (req, res) => {
+      try {
+        const { supplierName } = req.query; // Get supplierName from the query parameters
 
-    // Ensure supplierName is provided
-    if (!supplierName) {
-      return res.status(400).send({ error: 'Supplier name is required' });
-    }
+        // Ensure supplierName is provided
+        if (!supplierName) {
+          return res.status(400).send({ error: 'Supplier name is required' });
+        }
 
-    // Find all sales that match the supplierName and have paymentStatus 'Paid' or 'Due'
-    const result = await saleCollection.find({
-      supplierName: supplierName,
-      paymentStatus: { $in: ['Paid', 'Due'] }
-    }).toArray();
+        // Find all sales that match the supplierName and have paymentStatus 'Paid' or 'Due'
+        const result = await saleCollection.find({
+          supplierName: supplierName,
+          paymentStatus: { $in: ['Paid', 'Due'] }
+        }).toArray();
 
-    // Check if any results are found
-    if (result.length === 0) {
-      return res.status(404).send({ error: 'No results found for the supplier' });
-    }
+        // Check if any results are found
+        if (result.length === 0) {
+          return res.status(404).send({ error: 'No results found for the supplier' });
+        }
 
-    // Send the sales back
-    res.send(result);
-  } catch (error) {
-    console.error('Error fetching sale:', error);
-    res.status(500).send({ error: 'Failed to fetch sale' });
-  }
-});
+        // Send the sales back
+        res.send(result);
+      } catch (error) {
+        console.error('Error fetching sale:', error);
+        res.status(500).send({ error: 'Failed to fetch sale' });
+      }
+    });
 
     // .....................
 
@@ -674,11 +761,11 @@ app.get('/sale', async (req, res) => {
       }
     });
 
-// Edit a sale
-app.patch('/sale/:id', async (req, res) => {
-  try {
-      const id = req.params.id;
-      const {
+    // Edit a sale
+    app.patch('/sale/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const {
           documentNumber,
           airlineCode,
           supplierName,
@@ -689,42 +776,42 @@ app.patch('/sale/:id', async (req, res) => {
           passengerName,
           sector,
           date,
-      } = req.body;
+        } = req.body;
 
-      console.log(req.body);
+        console.log(req.body);
 
-      const result = await saleCollection.updateOne(
+        const result = await saleCollection.updateOne(
           { _id: new ObjectId(id) }, // Match document by its _id
           {
-              $set: {
-                  documentNumber,
-                  airlineCode,
-                  supplierName,
-                  sellPrice,
-                  buyingPrice,
-                  mode,
-                  remarks,
-                  passengerName,
-                  sector,
-                  date,
-              },
+            $set: {
+              documentNumber,
+              airlineCode,
+              supplierName,
+              sellPrice,
+              buyingPrice,
+              mode,
+              remarks,
+              passengerName,
+              sector,
+              date,
+            },
           },
           { upsert: true } // This allows for inserting a new document if none is found
-      );
-      console.log(result);
+        );
+        console.log(result);
 
-      if (result.modifiedCount > 0) {
+        if (result.modifiedCount > 0) {
           res.status(200).json({ message: 'Sale updated successfully' });
-      } else if (result.upsertedCount > 0) {
+        } else if (result.upsertedCount > 0) {
           res.status(201).json({ message: 'Sale created successfully' });
-      } else {
+        } else {
           res.status(404).json({ message: 'No matching sale found to update' });
+        }
+      } catch (error) {
+        console.error('Error updating sale:', error);
+        res.status(500).json({ message: 'Error updating sale' });
       }
-  } catch (error) {
-      console.error('Error updating sale:', error);
-      res.status(500).json({ message: 'Error updating sale' });
-  }
-});
+    });
 
 
 
