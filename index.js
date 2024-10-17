@@ -131,19 +131,19 @@ async function run() {
 
     app.get('/users/status/:email', verifyToken, async (req, res) => {
       const email = req.params.email;
-    
+
       // Ensure the email matches the one in the decoded token for security
       if (email !== req.decoded.email) {
         return res.status(403).send({ message: 'forbidden access: UNVERIFIED' });
       }
-    
+
       try {
         // Find the user by email in the database
         const user = await userCollection.findOne({ email });
         if (!user) {
           return res.status(404).send({ message: 'User not found' });
         }
-    
+
         // Return the user's status
         const isActive = user.status === 'active';
         res.send({ active: isActive });
@@ -152,7 +152,7 @@ async function run() {
         res.status(500).send({ message: 'Internal server error' });
       }
     });
-    
+
 
     app.get('/users/admin/:email', verifyToken, verifyAdmin, async (req, res) => {
       const email = req.params.email;
@@ -623,6 +623,43 @@ async function run() {
 
     // .....................
 
+
+    // Validate document number and get last RV number
+    app.get('/validate-existing-sales', async (req, res) => {
+      try {
+        const { documentNumber } = req.query;
+
+        if (!documentNumber) {
+          return res.status(400).json({ error: 'Document number is required' });
+        }
+
+        // Check if the document number already exists
+        const existingDocument = await saleCollection.findOne({ documentNumber });
+
+        // Fetch the last stored RV number
+        const lastSale = await saleCollection.find().sort({ createdAt: -1 }).limit(1).toArray(); // Assuming you have a timestamp field for sorting
+        let lastRVNumber = null;
+
+        if (lastSale.length > 0) {
+          lastRVNumber = lastSale[0].rvNumber; // Assuming rvNumber is stored
+        }
+
+        // Format the next RV number
+        const newRVNumber = lastRVNumber
+          ? `RV-${String(parseInt(lastRVNumber.replace('RV-', ''), 10) + 1).padStart(4, '0')}`
+          : 'RV-0001'; // Start from RV-0001 if no sales exist
+
+        // Return the validation result and the last RV number
+        return res.status(200).json({
+          exists: !!existingDocument,
+          message: existingDocument ? 'Document number already exists' : 'Document number is available',
+          lastRVNumber: newRVNumber,
+        });
+      } catch (error) {
+        console.error('Error validating document number:', error);
+        res.status(500).json({ error: 'Error validating document number' });
+      }
+    });
 
     // Add a new sale
     app.post('/sale', async (req, res) => {
