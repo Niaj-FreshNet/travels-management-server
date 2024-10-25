@@ -240,9 +240,9 @@ async function run() {
 
     // ................................ClientArea Related API.................................
     app.post('/clientArea', verifyToken, verifySuperAdmin, async (req, res) => {
-      const { officeName, officeId, location } = req.body;
+      const { officeName, officeId, officeAddress } = req.body;
       try {
-        const newClientArea = { officeName, officeId, location, status: 'active', createdAt: new Date() };
+        const newClientArea = { officeName, officeId, officeAddress, status: 'active' };
         const result = await clientAreaCollection.insertOne(newClientArea);
         res.send({ message: 'ClientArea created successfully', insertedId: result.insertedId });
       } catch (error) {
