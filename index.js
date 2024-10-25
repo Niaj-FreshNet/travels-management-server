@@ -12,7 +12,8 @@ app.use(cors({
   origin: [
     'https://travels-management.web.app',
     'https://quickway2services.com',
-    'http://localhost:5173'
+    'http://localhost:5173',
+    'http://localhost:5174'
   ]
 }));
 
@@ -38,12 +39,50 @@ async function run() {
     const saleCollection = client.db('travelsDB').collection('sales');
     const paymentCollection = client.db('travelsDB').collection('payments');
     const userCollection = client.db('travelsDB').collection('users');
+    const clientAreaCollection = client.db('travelsDB').collection('clientAreas');
 
 
+
+    // // JWT related API to handle login and token generation
+    // app.post('/jwt', async (req, res) => {
+    //   const { email } = req.body;  // Extract email from the request body
+
+    //   try {
+    //     // Fetch the user from the database using the email
+    //     const user = await userCollection.findOne({ email });
+
+    //     if (!user) {
+    //       return res.status(404).send({ message: 'User not found' });
+    //     }
+
+    //     // Check if the user's account is active
+    //     const status = user.status;
+    //     if (status !== 'active') {
+    //       return res.status(403).send({ message: 'Account is inactive' });
+    //     }
+
+    //     // Get the user's role from the database (sales/admin)
+    //     const role = user.role;
+
+    //     // Sign the JWT with both email, role, and status
+    //     const token = jwt.sign(
+    //       { email, role, status },  // Include email, role, and status in the JWT payload
+    //       process.env.ACCESS_TOKEN_SECRET,
+    //       { expiresIn: '24h' }  // Token expires in 24 hours
+    //     );
+
+    //     // Send the JWT token back to the client
+    //     res.send({ token });
+
+    //   } catch (error) {
+    //     console.error('Error generating JWT:', error);
+    //     res.status(500).send({ message: 'Internal server error' });
+    //   }
+    // });
 
     // JWT related API to handle login and token generation
     app.post('/jwt', async (req, res) => {
-      const { email } = req.body;  // Extract email from the request body
+      const { email } = req.body; // Extract email from the request body
 
       try {
         // Fetch the user from the database using the email
@@ -54,20 +93,19 @@ async function run() {
         }
 
         // Check if the user's account is active
-        const status = user.status;
+        const { status, role, officeId } = user;
+        console.log('this is my role and officeId:', role, officeId)
         if (status !== 'active') {
           return res.status(403).send({ message: 'Account is inactive' });
         }
 
-        // Get the user's role from the database (sales/admin)
-        const role = user.role;
-
-        // Sign the JWT with both email, role, and status
+        // Sign the JWT with email, role, status, and officeId
         const token = jwt.sign(
-          { email, role, status },  // Include email, role, and status in the JWT payload
+          { email, role, status, officeId }, // Include officeId in the JWT payload
           process.env.ACCESS_TOKEN_SECRET,
-          { expiresIn: '24h' }  // Token expires in 24 hours
+          { expiresIn: '24h' } // Token expires in 24 hours
         );
+        console.log('token here:', token)
 
         // Send the JWT token back to the client
         res.send({ token });
@@ -78,23 +116,55 @@ async function run() {
       }
     });
 
+    // // Middleware to verify the JWT and ensure the user has an active account
+    // const verifyToken = (req, res, next) => {
+    //   const authorization = req.headers.authorization;
+
+    //   if (!authorization) {
+    //     return res.status(401).send({ message: 'Unauthorized access' });
+    //   }
+
+    //   const token = authorization.split(' ')[1];
+    //   console.log('token:', token)
+
+    //   jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+    //     if (err) {
+    //       return res.status(401).send({ message: 'VULVAL MANUSHER access' });
+    //     }
+
+    //     // Attach the decoded token (which includes email, role, and status) to the request object
+    //     req.decoded = decoded;
+
+    //     // Check if the user's account is active
+    //     if (req.decoded.status !== 'active') {
+    //       return res.status(403).send({ message: 'Account is inactive' });
+    //     }
+    //     console.log('passed! its Active')
+
+    //     next();
+    //   });
+    // };
+
     // Middleware to verify the JWT and ensure the user has an active account
     const verifyToken = (req, res, next) => {
       const authorization = req.headers.authorization;
+      console.log('check my authorization', authorization)
 
       if (!authorization) {
         return res.status(401).send({ message: 'Unauthorized access' });
       }
 
       const token = authorization.split(' ')[1];
+      console.log('now check verifyToken:', token)
 
       jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
         if (err) {
           return res.status(401).send({ message: 'Unauthorized access' });
         }
 
-        // Attach the decoded token (which includes email, role, and status) to the request object
+        // Attach the decoded token (which includes email, role, status, and officeId) to the request object
         req.decoded = decoded;
+        console.log('decoded', decoded)
 
         // Check if the user's account is active
         if (req.decoded.status !== 'active') {
@@ -105,21 +175,101 @@ async function run() {
       });
     };
 
-    // use verify admin after verifyToken
+    // // use verify admin after verifyToken
+    // const verifyAdmin = async (req, res, next) => {
+    //   const email = req.decoded.email;
+    //   console.log('Admin Check:', email)
+    //   const query = { email: email };
+    //   console.log(query)
+    //   const user = await userCollection.findOne(query);
+    //   console.log(user)
+    //   const isAdmin = user?.role === 'admin';
+    //   console.log(isAdmin)
+    //   if (!isAdmin) {
+    //     return res.status(403).send({ message: 'forbidden access: NOT ADMIN' });
+    //   }
+    //   next();
+    // }
+
+    // Middleware to verify Admin within their office
     const verifyAdmin = async (req, res, next) => {
-      const email = req.decoded.email;
-      console.log('Admin Check:', email)
-      const query = { email: email };
-      console.log(query)
-      const user = await userCollection.findOne(query);
-      console.log(user)
-      const isAdmin = user?.role === 'admin';
-      console.log(isAdmin)
+      const { email, officeId } = req.decoded; // Destructure officeId from the token
+      console.log('im now in verifyAdmin', req.decoded)
+
+      const user = await userCollection.findOne({ email });
+      console.log('verifyAdmin of  user', user)
+      const isAdmin = user?.role === 'admin' && user?.officeId === officeId; // Check both role and officeId
+      console.log('isAdmin', isAdmin)
+
       if (!isAdmin) {
-        return res.status(403).send({ message: 'forbidden access: NOT ADMIN' });
+        return res.status(403).send({ message: 'Forbidden access: NOT ADMIN or Unauthorized Office' });
       }
       next();
-    }
+    };
+
+    // // Middleware to verify Super-Admin
+    // const verifySuperAdmin = async (req, res, next) => {
+    //   const { role } = req.decoded;
+    //   if (role !== 'super-admin') {
+    //     return res.status(403).send({ message: 'Forbidden access: NOT SUPER-ADMIN' });
+    //   }
+    //   next();
+    // };
+
+    // Middleware to verify Super-Admin
+    const verifySuperAdmin = async (req, res, next) => {
+      const { role } = req.decoded;
+      console.log('SUPER_ADMIN_ROLE_CHECKING:', role, 'decoded:', req.decoded)
+      if (role !== 'super-admin') {
+        return res.status(403).send({ message: 'Forbidden access: NOT SUPER-ADMIN' });
+      }
+      next();
+    };
+
+    // // Middleware to verify Super-Admin
+    // const verifySuperAdmin = async (req, res, next) => {
+    //   const { email } = req.decoded;
+
+    //   const user = await userCollection.findOne({ email });
+    //   if (user?.role !== 'super-admin') {
+    //     return res.status(403).send({ message: 'Forbidden: Super-Admin access only' });
+    //   }
+    //   next();
+    // };
+
+
+    // ................................ClientArea Related API.................................
+    app.post('/clientArea', verifyToken, verifySuperAdmin, async (req, res) => {
+      const { officeName, officeId, location } = req.body;
+      try {
+        const newClientArea = { officeName, officeId, location, status: 'active', createdAt: new Date() };
+        const result = await clientAreaCollection.insertOne(newClientArea);
+        res.send({ message: 'ClientArea created successfully', insertedId: result.insertedId });
+      } catch (error) {
+        res.status(500).send({ message: 'Failed to create clientArea' });
+      }
+    });
+
+    // Get all client areas
+    app.get('/clientArea', verifyToken, verifySuperAdmin, async (req, res) => {
+      try {
+        const clientAreas = await clientAreaCollection.find().toArray();
+        res.send(clientAreas);
+      } catch (error) {
+        res.status(500).send({ message: 'Failed to fetch clientAreas' });
+      }
+    });
+
+    // Delete client area by ID
+    app.delete('/clientArea/:id', verifyToken, verifySuperAdmin, async (req, res) => {
+      const { id } = req.params;
+      try {
+        const result = await clientAreaCollection.deleteOne({ _id: new ObjectId(id) });
+        res.send({ message: 'ClientArea deleted successfully' });
+      } catch (error) {
+        res.status(500).send({ message: 'Failed to delete clientArea' });
+      }
+    });
 
 
 
@@ -129,11 +279,37 @@ async function run() {
     //   res.send(result);
     // });
 
+    // app.get('/users/status/:email', verifyToken, async (req, res) => {
+    //   const email = req.params.email;
+
+    //   // Ensure the email matches the one in the decoded token for security
+    //   if (email !== req.decoded.email) {
+    //     return res.status(403).send({ message: 'forbidden access: UNVERIFIED' });
+    //   }
+
+    //   try {
+    //     // Find the user by email in the database
+    //     const user = await userCollection.findOne({ email });
+    //     if (!user) {
+    //       return res.status(404).send({ message: 'User not found' });
+    //     }
+
+    //     // Return the user's status
+    //     const isActive = user.status === 'active';
+    //     res.send({ active: isActive });
+    //   } catch (error) {
+    //     console.error('Error fetching user status:', error);
+    //     res.status(500).send({ message: 'Internal server error' });
+    //   }
+    // });
+
+    // Fetch user status by email
     app.get('/users/status/:email', verifyToken, async (req, res) => {
       const email = req.params.email;
+      const { role, email: tokenEmail } = req.decoded;
 
-      // Ensure the email matches the one in the decoded token for security
-      if (email !== req.decoded.email) {
+      // Ensure regular users can only fetch their own status; super-admins can fetch anyone's status
+      if (role !== 'super-admin' && email !== tokenEmail) {
         return res.status(403).send({ message: 'forbidden access: UNVERIFIED' });
       }
 
@@ -154,23 +330,101 @@ async function run() {
     });
 
 
-    app.get('/users/admin/:email', verifyToken, verifyAdmin, async (req, res) => {
+    // app.get('/users/admin/:email', verifyToken, verifyAdmin, async (req, res) => {
+    //   const email = req.params.email;
+    //   console.log(email);
+    //   if (email !== req.decoded.email) {
+    //     return res.status(403).send({ message: 'forbidden access: UNVERIFIED' })
+    //   }
+    //   const query = { email: email };
+    //   console.log(query);
+    //   const user = await userCollection.findOne(query);
+    //   console.log(user);
+    //   let admin = false;
+    //   if (user) {
+    //     admin = user?.role === 'admin';
+    //     console.log(admin);
+    //   }
+    //   res.send({ admin });
+    // });
+
+    // Check if a user is an admin
+    app.get('/users/admin/:email', verifyToken, async (req, res) => {
       const email = req.params.email;
-      console.log(email);
-      if (email !== req.decoded.email) {
-        return res.status(403).send({ message: 'forbidden access: UNVERIFIED' })
+      const { role, email: tokenEmail, officeId: tokenOfficeId } = req.decoded;
+      console.log('.........decoded:', req.decoded)
+      console.log('.........admin checking:', 'role:', role, 'email:', email, 'officeId:', tokenOfficeId)
+
+      // Ensure regular users and admins can only check their own admin status; super-admins can check anyone's
+      if (role !== 'super-admin' && email !== tokenEmail) {
+        return res.status(403).send({ message: 'forbidden access: UNVERIFIED' });
       }
-      const query = { email: email };
-      console.log(query);
-      const user = await userCollection.findOne(query);
-      console.log(user);
-      let admin = false;
-      if (user) {
-        admin = user?.role === 'admin';
-        console.log(admin);
+
+      try {
+        const user = await userCollection.findOne({ email });
+        console.log('user for isAdmin verification', user.email, user.officeId, user)
+        if (!user) {
+          return res.status(404).send({ message: 'User not found' });
+        }
+
+        // Check if the user is an admin
+        const isAdmin = user.role === 'admin' || user.role === 'super-admin';
+
+        // CHECKING USER'S OFFICE ID AND TOKEN OFFICE ID SAME OR NOT
+        console.log(user.officeId, '::::::::::::::::::::::::::::::::::::', tokenOfficeId)
+
+        // For regular admins, ensure they are only checking within their own office
+        if (role === 'admin' && user.officeId !== tokenOfficeId) {
+          console.log('HEY MAN I AM ----------------------------------------------------------ONLY ADMIN')
+          return res.status(403).send({ message: 'forbidden access: Unauthorized Office' });
+        }
+
+        // Allow super-admins to check admin status across offices
+        if (role === 'super-admin') {
+          console.log('HEY MAN I AM SUPER_____________________________________________________DUPER--------ADMIN')
+          return res.send({ admin: isAdmin });
+        }
+
+        res.send({ admin: isAdmin });
+      } catch (error) {
+        console.error('Error checking if user is admin:', error);
+        res.status(500).send({ message: 'Internal server error' });
       }
-      res.send({ admin });
     });
+
+    // Check if an admin is a super-admin
+    app.get('/users/super-admin/:email', verifyToken, async (req, res) => {
+      const email = req.params.email;
+      const { role, email: tokenEmail, officeId: tokenOfficeId } = req.decoded;
+    
+      // Ensure regular users and admins can only check their own admin status; super-admins can check anyone's
+      if (role !== 'super-admin' && email !== tokenEmail) {
+        return res.status(403).send({ message: 'forbidden access: UNVERIFIED' });
+      }
+    
+      try {
+        const user = await userCollection.findOne({ email });
+        if (!user) {
+          return res.status(404).send({ message: 'User not found' });
+        }
+    
+        // Check if the user is a super-admin
+        const isSuperAdmin = user.role === 'super-admin';
+        console.log('isSuperAdmin', isSuperAdmin)
+        console.log('email:', email, 'is', isSuperAdmin)
+    
+        // For regular admins, ensure they are only checking within their own office
+        if (role === 'admin' && user.officeId !== tokenOfficeId) {
+          return res.status(403).send({ message: 'forbidden access: Unauthorized Office' });
+        }
+    
+        // Return whether the user is a super-admin
+        res.send({ isSuperAdmin });
+      } catch (error) {
+        console.error('Error checking if user is super-admin:', error);
+        res.status(500).send({ message: 'Internal server error' });
+      }
+    });    
 
     // app.post('/users', async (req, res) => {
     //   const user = req.body;
@@ -207,8 +461,20 @@ async function run() {
 
 
     // ................................User Related API....................................
-    // Fetch all users
-    app.get('/users', async (req, res) => {
+    // // Fetch all users
+    // app.get('/users', async (req, res) => {
+    //   try {
+    //     const cursor = userCollection.find();
+    //     const result = await cursor.toArray();
+    //     res.send(result);
+    //   } catch (error) {
+    //     console.error('Error fetching users:', error);
+    //     res.status(500).send({ error: 'Failed to fetch users' });
+    //   }
+    // });
+
+    // Fetch all users (Super-Admin)
+    app.get('/all-users', verifyToken, verifySuperAdmin, async (req, res) => {
       try {
         const cursor = userCollection.find();
         const result = await cursor.toArray();
@@ -219,29 +485,87 @@ async function run() {
       }
     });
 
-    // Fetch a single user by ID
-    app.get('/user/:id', async (req, res) => {
+    // Fetch users for a specific office (Admin)
+    app.get('/users/office', verifyToken, verifyAdmin, async (req, res) => {
+      console.log('HELLO MAN HOW ARE YOU')
+      const { officeId } = req.decoded; // Get officeId from the JWT
+      console.log('officeId in users/office api:', officeId)
       try {
+        const users = await userCollection.find({ officeId }).toArray();
+        console.log('users query to find officeId:', officeId)
+        res.send(users);
+      } catch (error) {
+        console.error('Error fetching office users:', error);
+        res.status(500).send({ error: 'Failed to fetch users' });
+      }
+    });
+
+    // // Fetch a single user by ID
+    // app.get('/user/:id', async (req, res) => {
+    //   try {
+    //     const id = req.params.id;
+    //     const result = await userCollection.findOne({ _id: new ObjectId(id) });
+    //     if (!result) {
+    //       res.status(404).send({ error: 'User not found' });
+    //     } else {
+    //       res.send(result);
+    //     }
+    //   } catch (error) {
+    //     console.error('Error fetching user:', error);
+    //     res.status(500).send({ error: 'Failed to fetch user' });
+    //   }
+    // });
+
+    // Fetch a single user by ID
+    app.get('/user/:id', verifyToken, async (req, res) => {
+      try {
+        const { role, officeId } = req.decoded;
         const id = req.params.id;
-        const result = await userCollection.findOne({ _id: new ObjectId(id) });
-        if (!result) {
-          res.status(404).send({ error: 'User not found' });
-        } else {
-          res.send(result);
+        const user = await userCollection.findOne({ _id: new ObjectId(id) });
+
+        if (!user) {
+          return res.status(404).send({ error: 'User not found' });
         }
+
+        // Check if the requestor is super-admin or admin of the same office
+        if (role !== 'super-admin' && user.officeId !== officeId) {
+          return res.status(403).send({ error: 'Forbidden access: Unauthorized Office' });
+        }
+
+        res.send(user);
       } catch (error) {
         console.error('Error fetching user:', error);
         res.status(500).send({ error: 'Failed to fetch user' });
       }
     });
 
+    // // Add a new user
+    // app.post('/user', verifyToken, verifyAdmin, async (req, res) => {
+    //   try {
+    //     const newUser = req.body;
+    //     console.log('New user:', newUser);
+    //     const result = await userCollection.insertOne(newUser);
+    //     console.log('Insert result:', result);
+    //     res.send(result);
+    //   } catch (error) {
+    //     console.error('Error adding user:', error);
+    //     res.status(500).send({ error: 'Failed to add user' });
+    //   }
+    // });
+
     // Add a new user
-    app.post('/user', verifyToken, verifyAdmin, async (req, res) => {
+    app.post('/user', verifyToken, async (req, res) => {
       try {
-        const newUser = req.body;
+        const { role, officeId: adminOfficeId } = req.decoded;
+        let newUser = req.body;
+
+        // Only allow admins to add users to their own office
+        if (role !== 'super-admin') {
+          newUser.officeId = adminOfficeId;
+        }
+
         console.log('New user:', newUser);
         const result = await userCollection.insertOne(newUser);
-        console.log('Insert result:', result);
         res.send(result);
       } catch (error) {
         console.error('Error adding user:', error);
@@ -249,15 +573,45 @@ async function run() {
       }
     });
 
-    // Update an user's status
-    app.patch('/user/:id/status', verifyToken, verifyAdmin, async (req, res) => {
+    // // Update an user's status
+    // app.patch('/user/:id/status', verifyToken, verifyAdmin, async (req, res) => {
+    //   try {
+    //     const id = req.params.id;
+    //     const { status } = req.body;
+    //     const result = await userCollection.updateOne(
+    //       { _id: new ObjectId(id) },
+    //       { $set: { status } }
+    //     );
+    //     if (result.modifiedCount === 0) {
+    //       res.status(404).send({ error: 'User not found or status unchanged' });
+    //     } else {
+    //       res.send(result);
+    //     }
+    //   } catch (error) {
+    //     console.error('Error updating user status:', error);
+    //     res.status(500).send({ error: 'Failed to update user status' });
+    //   }
+    // });
+
+    // Update a user's status
+    app.patch('/user/:id/status', verifyToken, async (req, res) => {
       try {
+        const { role, officeId: adminOfficeId } = req.decoded;
         const id = req.params.id;
         const { status } = req.body;
+
+        const user = await userCollection.findOne({ _id: new ObjectId(id) });
+
+        // Restrict regular admins to their own office users
+        if (role !== 'super-admin' && user.officeId !== adminOfficeId) {
+          return res.status(403).send({ error: 'Forbidden access: Unauthorized Office' });
+        }
+
         const result = await userCollection.updateOne(
           { _id: new ObjectId(id) },
           { $set: { status } }
         );
+
         if (result.modifiedCount === 0) {
           res.status(404).send({ error: 'User not found or status unchanged' });
         } else {
@@ -269,14 +623,49 @@ async function run() {
       }
     });
 
+    // // Edit a user
+    // app.put('/user/:id', async (req, res) => {
+    //   try {
+    //     const id = req.params.id;
+    //     const updatedUser = req.body;
+
+    //     if (!updatedUser || Object.keys(updatedUser).length === 0) {
+    //       return res.status(400).send({ error: 'No update data provided' });
+    //     }
+
+    //     const result = await userCollection.updateOne(
+    //       { _id: new ObjectId(id) },
+    //       { $set: updatedUser }
+    //     );
+
+    //     if (result.matchedCount === 0) {
+    //       return res.status(404).send({ error: 'User not found' });
+    //     }
+
+    //     if (result.modifiedCount === 0) {
+    //       return res.status(304).send({ message: 'No changes made to the user' });
+    //     }
+
+    //     const updatedUserData = await userCollection.findOne({ _id: new ObjectId(id) });
+    //     res.send(updatedUserData);
+    //   } catch (error) {
+    //     console.error('Error updating user:', error);
+    //     res.status(500).send({ error: 'Failed to update user' });
+    //   }
+    // });
+
     // Edit a user
-    app.put('/user/:id', async (req, res) => {
+    app.put('/user/:id', verifyToken, async (req, res) => {
       try {
+        const { role, officeId: adminOfficeId } = req.decoded;
         const id = req.params.id;
         const updatedUser = req.body;
 
-        if (!updatedUser || Object.keys(updatedUser).length === 0) {
-          return res.status(400).send({ error: 'No update data provided' });
+        const user = await userCollection.findOne({ _id: new ObjectId(id) });
+
+        // Restrict edits to users within the admin's office
+        if (role !== 'super-admin' && user.officeId !== adminOfficeId) {
+          return res.status(403).send({ error: 'Forbidden access: Unauthorized Office' });
         }
 
         const result = await userCollection.updateOne(
@@ -288,10 +677,6 @@ async function run() {
           return res.status(404).send({ error: 'User not found' });
         }
 
-        if (result.modifiedCount === 0) {
-          return res.status(304).send({ message: 'No changes made to the user' });
-        }
-
         const updatedUserData = await userCollection.findOne({ _id: new ObjectId(id) });
         res.send(updatedUserData);
       } catch (error) {
@@ -300,10 +685,34 @@ async function run() {
       }
     });
 
-    // Delete an user
-    app.delete('/user/:id', verifyToken, verifyAdmin, async (req, res) => {
+    // // Delete an user
+    // app.delete('/user/:id', verifyToken, verifyAdmin, async (req, res) => {
+    //   try {
+    //     const id = req.params.id;
+    //     const result = await userCollection.deleteOne({ _id: new ObjectId(id) });
+    //     if (result.deletedCount === 0) {
+    //       res.status(404).send({ error: 'User not found' });
+    //     } else {
+    //       res.send(result);
+    //     }
+    //   } catch (error) {
+    //     console.error('Error deleting user:', error);
+    //     res.status(500).send({ error: 'Failed to delete user' });
+    //   }
+    // });
+
+    // Delete a user
+    app.delete('/user/:id', verifyToken, async (req, res) => {
       try {
+        const { role, officeId: adminOfficeId } = req.decoded;
         const id = req.params.id;
+        const user = await userCollection.findOne({ _id: new ObjectId(id) });
+
+        // Ensure admins can only delete users within their office
+        if (role !== 'super-admin' && user.officeId !== adminOfficeId) {
+          return res.status(403).send({ error: 'Forbidden access: Unauthorized Office' });
+        }
+
         const result = await userCollection.deleteOne({ _id: new ObjectId(id) });
         if (result.deletedCount === 0) {
           res.status(404).send({ error: 'User not found' });
@@ -550,21 +959,21 @@ async function run() {
     app.get('/sales', verifyToken, async (req, res) => {
       try {
         const userEmail = req.decoded.email;  // Get user's email from the decoded JWT
-        console.log('decoded email:', userEmail)
+        // console.log('decoded email:', userEmail)
         const userRole = req.decoded.role;    // Get user's role from the decoded JWT
-        console.log('decoded role:', userRole)
+        // console.log('decoded role:', userRole)
 
         let query = {};
 
         // If the user is a sales user, filter the sales by the createdBy field (their email)
         if (userRole === 'sales') {
           query.createdBy = userEmail;
-          console.log('userEmail: ', userEmail)
+          // console.log('userEmail: ', userEmail)
         }
         // If the user is an admin, no need to filter, they can see all sales
 
         const sales = await saleCollection.find(query).toArray();
-        console.log('sales query: ', sales)
+        // console.log('sales query: ', sales)
         res.send(sales);
 
       } catch (error) {
