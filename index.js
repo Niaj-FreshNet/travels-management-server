@@ -396,35 +396,35 @@ async function run() {
     app.get('/users/super-admin/:email', verifyToken, async (req, res) => {
       const email = req.params.email;
       const { role, email: tokenEmail, officeId: tokenOfficeId } = req.decoded;
-    
+
       // Ensure regular users and admins can only check their own admin status; super-admins can check anyone's
       if (role !== 'super-admin' && email !== tokenEmail) {
         return res.status(403).send({ message: 'forbidden access: UNVERIFIED' });
       }
-    
+
       try {
         const user = await userCollection.findOne({ email });
         if (!user) {
           return res.status(404).send({ message: 'User not found' });
         }
-    
+
         // Check if the user is a super-admin
         const isSuperAdmin = user.role === 'super-admin';
         console.log('isSuperAdmin', isSuperAdmin)
         console.log('email:', email, 'is', isSuperAdmin)
-    
+
         // For regular admins, ensure they are only checking within their own office
         if (role === 'admin' && user.officeId !== tokenOfficeId) {
           return res.status(403).send({ message: 'forbidden access: Unauthorized Office' });
         }
-    
+
         // Return whether the user is a super-admin
         res.send({ isSuperAdmin });
       } catch (error) {
         console.error('Error checking if user is super-admin:', error);
         res.status(500).send({ message: 'Internal server error' });
       }
-    });    
+    });
 
     // app.post('/users', async (req, res) => {
     //   const user = req.body;
@@ -487,9 +487,7 @@ async function run() {
 
     // Fetch users for a specific office (Admin)
     app.get('/users/office', verifyToken, verifyAdmin, async (req, res) => {
-      console.log('HELLO MAN HOW ARE YOU')
       const { officeId } = req.decoded; // Get officeId from the JWT
-      console.log('officeId in users/office api:', officeId)
       try {
         const users = await userCollection.find({ officeId }).toArray();
         console.log('users query to find officeId:', officeId)
@@ -516,18 +514,20 @@ async function run() {
     //   }
     // });
 
-    // Fetch a single user by ID
-    app.get('/user/:id', verifyToken, async (req, res) => {
+    // Fetch a single user by email (decoded from the JWT)
+    app.get('/user', verifyToken, async (req, res) => {
       try {
-        const { role, officeId } = req.decoded;
-        const id = req.params.id;
-        const user = await userCollection.findOne({ _id: new ObjectId(id) });
+        const { email, role, officeId } = req.decoded; // Get email, role, and officeId from the decoded JWT token
+
+        // Find user by email
+        const user = await userCollection.findOne({ email });
+        console.log('Fetched user:', user);
 
         if (!user) {
           return res.status(404).send({ error: 'User not found' });
         }
 
-        // Check if the requestor is super-admin or admin of the same office
+        // Authorization check: Super-admins can access any user, while admins can only access users within their office
         if (role !== 'super-admin' && user.officeId !== officeId) {
           return res.status(403).send({ error: 'Forbidden access: Unauthorized Office' });
         }
@@ -538,6 +538,7 @@ async function run() {
         res.status(500).send({ error: 'Failed to fetch user' });
       }
     });
+
 
     // // Add a new user
     // app.post('/user', verifyToken, verifyAdmin, async (req, res) => {
@@ -830,17 +831,28 @@ async function run() {
 
 
     // ................................Supplier Related API....................................
-    // Fetch all suppliers
-    app.get('/suppliers', async (req, res) => {
+    // Fetch suppliers (accessible by Sales, Admin, and Super-Admin roles)
+    app.get('/suppliers', verifyToken, async (req, res) => {
       try {
-        const cursor = supplierCollection.find();
-        const result = await cursor.toArray();
-        res.send(result);
+        const { officeId: userOfficeId, role: userRole } = req.decoded;
+
+        let query = {};
+
+        // Sales and Admin roles can only see suppliers for their own office
+        if (userRole === 'sales' || userRole === 'admin') {
+          query.officeId = userOfficeId;
+        }
+
+        // Super-Admins can see all suppliers (no filtering by officeId required)
+
+        const suppliers = await supplierCollection.find(query).toArray();
+        res.send(suppliers);
       } catch (error) {
         console.error('Error fetching suppliers:', error);
         res.status(500).send({ error: 'Failed to fetch suppliers' });
       }
     });
+
 
     // Fetch a single supplier by ID
     app.get('/supplier/:id', async (req, res) => {
@@ -858,12 +870,20 @@ async function run() {
       }
     });
 
-    // Add a new supplier
-    app.post('/supplier', async (req, res) => {
+    // Add a new supplier (requires verification for officeId and createdBy email)
+    app.post('/supplier', verifyToken, async (req, res) => {
       try {
-        const newsupplier = req.body;
-        console.log('New supplier:', newsupplier);
-        const result = await supplierCollection.insertOne(newsupplier);
+        const { email, officeId } = req.decoded; // Extract email and officeId from the decoded JWT token
+
+        // Include officeId and createdBy in the new supplier object
+        const newSupplier = {
+          ...req.body,
+          createdBy: email,   // Track who created the supplier
+          officeId: officeId  // Associate the supplier with the office
+        };
+
+        console.log('New supplier with officeId and createdBy:', newSupplier);
+        const result = await supplierCollection.insertOne(newSupplier);
         console.log('Insert result:', result);
         res.send(result);
       } catch (error) {
@@ -958,8 +978,12 @@ async function run() {
     // Fetch sales (sales and admin role)
     app.get('/sales', verifyToken, async (req, res) => {
       try {
+        const { email, officeId } = req.decoded;
+        console.log('..............................................................................................', officeId, ':::::::::::::::::::::::::::::::::::::::::::', email)
         const userEmail = req.decoded.email;  // Get user's email from the decoded JWT
         // console.log('decoded email:', userEmail)
+        const userOfficeId = req.decoded.officeId;  // Get user's officeId from the decoded JWT
+        // console.log('decoded officeId:', userOfficeId)
         const userRole = req.decoded.role;    // Get user's role from the decoded JWT
         // console.log('decoded role:', userRole)
 
@@ -970,7 +994,11 @@ async function run() {
           query.createdBy = userEmail;
           // console.log('userEmail: ', userEmail)
         }
-        // If the user is an admin, no need to filter, they can see all sales
+        // If the user is a admin user, filter the sales by the officeId field (their email)
+        if (userRole === 'admin') {
+          query.officeId = userOfficeId;
+          // console.log('userOfficeId: ', userOfficeId)
+        }
 
         const sales = await saleCollection.find(query).toArray();
         // console.log('sales query: ', sales)
@@ -1033,6 +1061,45 @@ async function run() {
     // .....................
 
 
+    // // Validate document number and get last RV number
+    // app.get('/validate-existing-sales', async (req, res) => {
+    //   try {
+    //     const { documentNumber } = req.query;
+
+    //     if (!documentNumber) {
+    //       return res.status(400).json({ error: 'Document number is required' });
+    //     }
+
+    //     // Check if the document number already exists
+    //     const existingDocument = await saleCollection.findOne({ documentNumber });
+
+    //     // Fetch the last stored RV number
+    //     const lastSale = await saleCollection.find().sort({ createdAt: -1 }).limit(1).toArray(); // Assuming you have a timestamp field for sorting
+    //     let lastRVNumber = null;
+
+    //     if (lastSale.length > 0) {
+    //       lastRVNumber = lastSale[0].rvNumber; // Assuming rvNumber is stored
+    //     }
+
+    //     // Format the next RV number
+    //     const newRVNumber = lastRVNumber
+    //       ? `RV-${String(parseInt(lastRVNumber.replace('RV-', ''), 10) + 1).padStart(4, '0')}`
+    //       : 'RV-0001'; // Start from RV-0001 if no sales exist
+
+    //     // Return the validation result and the last RV number
+    //     return res.status(200).json({
+    //       exists: !!existingDocument,
+    //       message: existingDocument ? 'Document number already exists' : 'Document number is available',
+    //       lastRVNumber: newRVNumber,
+    //     });
+    //   } catch (error) {
+    //     console.error('Error validating document number:', error);
+    //     res.status(500).json({ error: 'Error validating document number' });
+    //   }
+    // });
+    // .....................
+
+
     // Validate document number and get last RV number
     app.get('/validate-existing-sales', async (req, res) => {
       try {
@@ -1045,44 +1112,76 @@ async function run() {
         // Check if the document number already exists
         const existingDocument = await saleCollection.findOne({ documentNumber });
 
-        // Fetch the last stored RV number
-        const lastSale = await saleCollection.find().sort({ createdAt: -1 }).limit(1).toArray(); // Assuming you have a timestamp field for sorting
-        let lastRVNumber = null;
 
-        if (lastSale.length > 0) {
-          lastRVNumber = lastSale[0].rvNumber; // Assuming rvNumber is stored
+        // Begin transaction or atomic operation for unique RV generation
+        const session = client.startSession(); // MongoDB example; for other databases, use relevant transaction control
+        session.startTransaction();
+
+        try {
+          // Fetch the last stored RV number in the collection
+          const lastSale = await saleCollection.find().sort({ createdAt: -1 }).limit(1).toArray();
+          let lastRVNumber = null;
+
+          if (lastSale.length > 0) {
+            lastRVNumber = lastSale[0].rvNumber;
+          }
+
+          // Determine the new RV number in a sequential order
+          const newRVNumber = lastRVNumber
+            ? `RV-${String(parseInt(lastRVNumber.replace('RV-', ''), 10) + 1).padStart(4, '0')}`
+            : 'RV-0001'; // Start from RV-0001 if no sales exist
+
+          // Commit transaction
+          await session.commitTransaction();
+          session.endSession();
+
+          // Return the validation result and the next unique RV number
+          return res.status(200).json({
+            exists: !!existingDocument,
+            message: existingDocument ? 'Document number already exists' : 'Document number is available',
+            lastRVNumber: newRVNumber,
+          });
+        } catch (error) {
+          // Rollback transaction in case of an error
+          await session.abortTransaction();
+          session.endSession();
+          throw error;
         }
-
-        // Format the next RV number
-        const newRVNumber = lastRVNumber
-          ? `RV-${String(parseInt(lastRVNumber.replace('RV-', ''), 10) + 1).padStart(4, '0')}`
-          : 'RV-0001'; // Start from RV-0001 if no sales exist
-
-        // Return the validation result and the last RV number
-        return res.status(200).json({
-          exists: !!existingDocument,
-          message: existingDocument ? 'Document number already exists' : 'Document number is available',
-          lastRVNumber: newRVNumber,
-        });
       } catch (error) {
         console.error('Error validating document number:', error);
         res.status(500).json({ error: 'Error validating document number' });
       }
     });
 
+    // // Add a new sale
+    // app.post('/sale', async (req, res) => {
+    //   try {
+    //     const newSale = req.body;
+    //     console.log('New sale:', newSale);
+    //     const result = await saleCollection.insertOne(newSale);
+    //     console.log('Insert result:', result);
+    //     res.send(result);
+    //   } catch (error) {
+    //     console.error('Error adding sale:', error);
+    //     res.status(500).send({ error: 'Failed to add sale' });
+    //   }
+    // });
+
     // Add a new sale
-    app.post('/sale', async (req, res) => {
+    app.post('/sale', verifyToken, async (req, res) => {
       try {
-        const newSale = req.body;
-        console.log('New sale:', newSale);
+        const { officeId, email } = req.decoded; // Get officeId and email from the decoded JWT
+        const newSale = { ...req.body, officeId, createdBy: email }; // Add officeId and createdBy to the sale data
+
         const result = await saleCollection.insertOne(newSale);
-        console.log('Insert result:', result);
         res.send(result);
+
       } catch (error) {
         console.error('Error adding sale:', error);
         res.status(500).send({ error: 'Failed to add sale' });
       }
     });
+
 
     // Update a sale's post status by sale ID
     app.patch('/sale/:id/postStatus', async (req, res) => {
@@ -1302,12 +1401,28 @@ async function run() {
 
 
     // ................................Payment Related API....................................
-    // Fetch all payment
-    app.get('/payment', async (req, res) => {
+    // Fetch payments (accessible by Admin and Super-Admin roles only)
+    app.get('/payment', verifyToken, async (req, res) => {
       try {
-        const cursor = paymentCollection.find();
-        const result = await cursor.toArray();
-        res.send(result);
+        const { email: userEmail, officeId: userOfficeId, role: userRole } = req.decoded;
+
+        // Restrict access if the user is a sales user
+        if (userRole === 'sales') {
+          return res.status(403).send({ error: 'Access denied: Sales users cannot view payments' });
+        }
+
+        let query = {};
+
+        // Admins see only payments for their office
+        if (userRole === 'admin') {
+          query.officeId = userOfficeId;
+        }
+
+        // Super-Admins have access to all payments, so no filtering needed for them
+
+        const payments = await paymentCollection.find(query).toArray();
+        res.send(payments);
+
       } catch (error) {
         console.error('Error fetching payments:', error);
         res.status(500).send({ error: 'Failed to fetch payments' });
@@ -1331,10 +1446,16 @@ async function run() {
     });
 
     // Add a new payment
-    app.post('/payment', async (req, res) => {
+    app.post('/payment', verifyToken, async (req, res) => {
       try {
-        const newPayment = req.body;
-        console.log('New payment:', newPayment);
+        const { email, officeId } = req.decoded; // Extract email and officeId from the decoded JWT token
+        const newPayment = {
+          ...req.body,
+          createdBy: email,   // Add createdBy field
+          officeId: officeId  // Add officeId field
+        };
+
+        console.log('New payment with createdBy and officeId:', newPayment);
         const result = await paymentCollection.insertOne(newPayment);
         console.log('Insert result:', result);
         res.send(result);
