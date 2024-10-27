@@ -979,7 +979,7 @@ async function run() {
     app.get('/sales', verifyToken, async (req, res) => {
       try {
         const { email, officeId } = req.decoded;
-        console.log('..............................................................................................', officeId, ':::::::::::::::::::::::::::::::::::::::::::', email)
+        // console.log('..............................................................................................', officeId, ':::::::::::::::::::::::::::::::::::::::::::', email)
         const userEmail = req.decoded.email;  // Get user's email from the decoded JWT
         // console.log('decoded email:', userEmail)
         const userOfficeId = req.decoded.officeId;  // Get user's officeId from the decoded JWT
