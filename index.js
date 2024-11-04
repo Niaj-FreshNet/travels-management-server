@@ -10,15 +10,19 @@ app.use(express.json());
 
 app.use(cors({
   origin: [
-    'https://travels-management.web.app',
     'https://quickway2services.com',
+    'https://travels-management.web.app',
     'http://localhost:5173',
     'http://localhost:5174'
-  ]
+  ],
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true // Use if you are using cookies or authentication headers
 }));
 
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.kqlaj.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
+
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
