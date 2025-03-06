@@ -15,10 +15,18 @@ app.use(cors({
     'http://localhost:5173',
     'http://localhost:5174'
   ],
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true
+  // methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+  // allowedHeaders: ['Content-Type', 'Authorization'],
+  // credentials: true,
 }));
+
+// // Explicitly handle the OPTIONS method, if needed (to ensure PATCH is allowed)
+// app.options('*', (req, res) => {
+//   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE');
+//   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+//   res.header('Access-Control-Allow-Origin', 'http://localhost:5173');
+//   res.sendStatus(204);  // Successful OPTIONS request with no content
+// });
 
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.kqlaj.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
