@@ -106,7 +106,7 @@ async function run() {
 
         // Check if the user's account is active
         const { status, role, officeId } = user;
-        console.log('this is my role and officeId:', role, officeId)
+        // console.log('this is my role and officeId:', role, officeId)
         if (status !== 'active') {
           return res.status(403).send({ message: 'Account is inactive' });
         }
@@ -117,7 +117,7 @@ async function run() {
           process.env.ACCESS_TOKEN_SECRET,
           { expiresIn: '24h' } // Token expires in 24 hours
         );
-        console.log('token here:', token)
+        // console.log('token here:', token)
 
         // Send the JWT token back to the client
         res.send({ token });
@@ -160,14 +160,14 @@ async function run() {
     // Middleware to verify the JWT and ensure the user has an active account
     const verifyToken = (req, res, next) => {
       const authorization = req.headers.authorization;
-      console.log('check my authorization', authorization)
+      // console.log('check my authorization', authorization)
 
       if (!authorization) {
         return res.status(401).send({ message: 'Unauthorized access' });
       }
 
       const token = authorization.split(' ')[1];
-      console.log('now check verifyToken:', token)
+      // console.log('now check verifyToken:', token)
 
       jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
         if (err) {
@@ -176,7 +176,7 @@ async function run() {
 
         // Attach the decoded token (which includes email, role, status, and officeId) to the request object
         req.decoded = decoded;
-        console.log('decoded', decoded)
+        // console.log('decoded', decoded)
 
         // Check if the user's account is active
         if (req.decoded.status !== 'active') {
@@ -206,12 +206,12 @@ async function run() {
     // Middleware to verify Admin within their office
     const verifyAdmin = async (req, res, next) => {
       const { email, officeId } = req.decoded; // Destructure officeId from the token
-      console.log('im now in verifyAdmin', req.decoded)
+      // console.log('im now in verifyAdmin', req.decoded)
 
       const user = await userCollection.findOne({ email });
       console.log('verifyAdmin of  user', user)
       const isAdmin = user?.role === 'admin' && user?.officeId === officeId; // Check both role and officeId
-      console.log('isAdmin', isAdmin)
+      // console.log('isAdmin', isAdmin)
 
       if (!isAdmin) {
         return res.status(403).send({ message: 'Forbidden access: NOT ADMIN or Unauthorized Office' });
@@ -231,7 +231,7 @@ async function run() {
     // Middleware to verify Super-Admin
     const verifySuperAdmin = async (req, res, next) => {
       const { role } = req.decoded;
-      console.log('SUPER_ADMIN_ROLE_CHECKING:', role, 'decoded:', req.decoded)
+      // console.log('SUPER_ADMIN_ROLE_CHECKING:', role, 'decoded:', req.decoded)
       if (role !== 'super-admin') {
         return res.status(403).send({ message: 'Forbidden access: NOT SUPER-ADMIN' });
       }
@@ -364,8 +364,8 @@ async function run() {
     app.get('/users/admin/:email', verifyToken, async (req, res) => {
       const email = req.params.email;
       const { role, email: tokenEmail, officeId: tokenOfficeId } = req.decoded;
-      console.log('.........decoded:', req.decoded)
-      console.log('.........admin checking:', 'role:', role, 'email:', email, 'officeId:', tokenOfficeId)
+      // console.log('.........decoded:', req.decoded)
+      // console.log('.........admin checking:', 'role:', role, 'email:', email, 'officeId:', tokenOfficeId)
 
       // Ensure regular users and admins can only check their own admin status; super-admins can check anyone's
       if (role !== 'super-admin' && email !== tokenEmail) {
@@ -374,7 +374,7 @@ async function run() {
 
       try {
         const user = await userCollection.findOne({ email });
-        console.log('user for isAdmin verification', user.email, user.officeId, user)
+        // console.log('user for isAdmin verification', user.email, user.officeId, user)
         if (!user) {
           return res.status(404).send({ message: 'User not found' });
         }
@@ -387,13 +387,13 @@ async function run() {
 
         // For regular admins, ensure they are only checking within their own office
         if (role === 'admin' && user.officeId !== tokenOfficeId) {
-          console.log('HEY MAN I AM ----------------------------------------------------------ONLY ADMIN')
+          // console.log('HEY MAN I AM ----------------------------------------------------------ONLY ADMIN')
           return res.status(403).send({ message: 'forbidden access: Unauthorized Office' });
         }
 
         // Allow super-admins to check admin status across offices
         if (role === 'super-admin') {
-          console.log('HEY MAN I AM SUPER_____________________________________________________DUPER--------ADMIN')
+          // console.log('HEY MAN I AM SUPER_____________________________________________________DUPER--------ADMIN')
           return res.send({ admin: isAdmin });
         }
 
@@ -422,8 +422,8 @@ async function run() {
 
         // Check if the user is a super-admin
         const isSuperAdmin = user.role === 'super-admin';
-        console.log('isSuperAdmin', isSuperAdmin)
-        console.log('email:', email, 'is', isSuperAdmin)
+        // console.log('isSuperAdmin', isSuperAdmin)
+        // console.log('email:', email, 'is', isSuperAdmin)
 
         // For regular admins, ensure they are only checking within their own office
         if (role === 'admin' && user.officeId !== tokenOfficeId) {
@@ -433,7 +433,7 @@ async function run() {
         // Return whether the user is a super-admin
         res.send({ isSuperAdmin });
       } catch (error) {
-        console.error('Error checking if user is super-admin:', error);
+        // console.error('Error checking if user is super-admin:', error);
         res.status(500).send({ message: 'Internal server error' });
       }
     });
@@ -510,21 +510,21 @@ async function run() {
       }
     });
 
-    // // Fetch a single user by ID
-    // app.get('/user/:id', async (req, res) => {
-    //   try {
-    //     const id = req.params.id;
-    //     const result = await userCollection.findOne({ _id: new ObjectId(id) });
-    //     if (!result) {
-    //       res.status(404).send({ error: 'User not found' });
-    //     } else {
-    //       res.send(result);
-    //     }
-    //   } catch (error) {
-    //     console.error('Error fetching user:', error);
-    //     res.status(500).send({ error: 'Failed to fetch user' });
-    //   }
-    // });
+    // Fetch a single user by ID
+    app.get('/user/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const result = await userCollection.findOne({ _id: new ObjectId(id) });
+        if (!result) {
+          res.status(404).send({ error: 'User not found' });
+        } else {
+          res.send(result);
+        }
+      } catch (error) {
+        console.error('Error fetching user:', error);
+        res.status(500).send({ error: 'Failed to fetch user' });
+      }
+    });
 
     // Fetch a single user by email (decoded from the JWT)
     app.get('/user', verifyToken, async (req, res) => {
@@ -533,7 +533,7 @@ async function run() {
 
         // Find user by email
         const user = await userCollection.findOne({ email });
-        console.log('Fetched user:', user);
+        // console.log('Fetched user:', user);
 
         if (!user) {
           return res.status(404).send({ error: 'User not found' });
@@ -668,18 +668,18 @@ async function run() {
     // });
 
     // Edit a user
-    app.put('/user/:id', verifyToken, async (req, res) => {
+    app.put('/user/:id', async (req, res) => {
       try {
-        const { role, officeId: adminOfficeId } = req.decoded;
+        // const { role, officeId: adminOfficeId } = req.decoded;
         const id = req.params.id;
         const updatedUser = req.body;
 
         const user = await userCollection.findOne({ _id: new ObjectId(id) });
 
-        // Restrict edits to users within the admin's office
-        if (role !== 'super-admin' && user.officeId !== adminOfficeId) {
-          return res.status(403).send({ error: 'Forbidden access: Unauthorized Office' });
-        }
+        // // Restrict edits to users within the admin's office
+        // if (role !== 'super-admin' && user.officeId !== adminOfficeId) {
+        //   return res.status(403).send({ error: 'Forbidden access: Unauthorized Office' });
+        // }
 
         const result = await userCollection.updateOne(
           { _id: new ObjectId(id) },
@@ -715,16 +715,16 @@ async function run() {
     // });
 
     // Delete a user
-    app.delete('/user/:id', verifyToken, async (req, res) => {
+    app.delete('/user/:id', async (req, res) => {
       try {
-        const { role, officeId: adminOfficeId } = req.decoded;
+        // const { role, officeId: adminOfficeId } = req.decoded;
         const id = req.params.id;
         const user = await userCollection.findOne({ _id: new ObjectId(id) });
 
-        // Ensure admins can only delete users within their office
-        if (role !== 'super-admin' && user.officeId !== adminOfficeId) {
-          return res.status(403).send({ error: 'Forbidden access: Unauthorized Office' });
-        }
+        // // Ensure admins can only delete users within their office
+        // if (role !== 'super-admin' && user.officeId !== adminOfficeId) {
+        //   return res.status(403).send({ error: 'Forbidden access: Unauthorized Office' });
+        // }
 
         const result = await userCollection.deleteOne({ _id: new ObjectId(id) });
         if (result.deletedCount === 0) {
