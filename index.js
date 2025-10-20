@@ -11,9 +11,12 @@ app.use(express.json());
 app.use(cors({
   origin: [
     'https://quickway2services.com',
+    'http://quickway2services.com',
     'https://travels-management.web.app',
     'http://localhost:5173',
-    'http://localhost:5174'
+    'http://localhost:5174',
+    'http://194.238.16.11',
+    'http://194.238.16.11:5000'
   ],
   // methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   // allowedHeaders: ['Content-Type', 'Authorization'],
